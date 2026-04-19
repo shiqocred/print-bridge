@@ -86,10 +86,13 @@ async fn handle_print(body: Bytes) -> StatusCode {
 
         // Gunakan perintah COPY /B untuk mengirim file biner langsung ke printer yang di-share
         // Jalur: \\127.0.0.1\NamaSharePrinter
+        // Gunakan .display() untuk path yang bersih
         let cmd = format!(
             "copy /b \"{}\" \"\\\\127.0.0.1\\THERMAL_PRINT\"",
-            temp_file.to_str().unwrap_or_default()
+            temp_file.display()
         );
+
+        println!("Eksekusi perintah: {}", cmd); // Tambahkan ini untuk cek di terminal
 
         let process = Command::new("cmd").args(["/C", &cmd]).spawn();
 
