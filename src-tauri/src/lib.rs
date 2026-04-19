@@ -12,13 +12,34 @@ const TARGET_PID: u16 = 0x8095;
 
 // Fungsi cek fisik USB (Berjalan di Windows & macOS)
 fn is_usb_plugged_in() -> bool {
-    let context = Context::new().ok();
-    if let Some(ctx) = context {
-        return ctx
-            .open_device_with_vid_pid(TARGET_VID, TARGET_PID)
-            .is_some();
+    #[cfg(target_os = "windows")]
+    {
+        // Kita tanya Windows: "Ada nggak perangkat yang namanya mengandung TECH CLA58?"
+        let output = Command::new("powershell")
+            .args([
+                "-Command",
+                "Get-PnpDevice -PresentOnly | Where-Object { $_.FriendlyName -match 'TECH CLA58' }",
+            ])
+            .output();
+
+        if let Ok(out) = output {
+            // Jika output tidak kosong, berarti ketemu
+            return !out.stdout.is_empty();
+        }
+        return false;
     }
-    false
+
+    #[cfg(target_os = "macos")]
+    {
+        // Kode rusb lama kamu untuk Mac tetap di sini
+        let context = Context::new().ok();
+        if let Some(ctx) = context {
+            return ctx
+                .open_device_with_vid_pid(TARGET_VID, TARGET_PID)
+                .is_some();
+        }
+        false
+    }
 }
 
 async fn handle_print(body: Bytes) -> StatusCode {
