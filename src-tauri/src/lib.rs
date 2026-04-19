@@ -74,20 +74,20 @@ async fn handle_print(body: Bytes) -> StatusCode {
     // --- LOGIKA UNTUK WINDOWS ---
     #[cfg(target_os = "windows")]
     {
-        println!("🖨️ [Windows] Mengirim data raw ke: {}", PRINTER_NAME);
+        println!("🖨️ [Windows] Mengirim raw data via UNC Path...");
 
         let temp_dir = std::env::temp_dir();
         let temp_file = temp_dir.join("print_job.bin");
 
+        // Tulis data biner ke file sementara
         if std::fs::write(&temp_file, &body).is_err() {
             return StatusCode::INTERNAL_SERVER_ERROR;
         }
 
-        // GANTI BAGIAN INI:
-        // Kita pakai PowerShell untuk "mendownload" file biner langsung ke antrean printer
+        // Gunakan perintah COPY /B untuk mengirim file biner langsung ke printer yang di-share
+        // Jalur: \\127.0.0.1\NamaSharePrinter
         let cmd = format!(
-            "print /D:\"{}\" \"{}\"",
-            PRINTER_NAME,
+            "copy /b \"{}\" \"\\\\127.0.0.1\\THERMAL_PRINT\"",
             temp_file.to_str().unwrap_or_default()
         );
 
@@ -99,7 +99,10 @@ async fn handle_print(body: Bytes) -> StatusCode {
                     let _ = std::fs::remove_file(temp_file);
                     StatusCode::OK
                 }
-                _ => StatusCode::INTERNAL_SERVER_ERROR,
+                _ => {
+                    println!("❌ Gagal mengirim file ke printer. Pastikan Printer Sharing aktif.");
+                    StatusCode::INTERNAL_SERVER_ERROR
+                }
             },
             Err(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };
