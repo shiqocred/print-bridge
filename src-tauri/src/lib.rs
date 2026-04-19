@@ -97,6 +97,15 @@ pub fn run() {
             // Thread Monitoring USB
             std::thread::spawn(move || loop {
                 let plugged = is_usb_plugged_in();
+
+                // TAMBAHKAN BARIS INI UNTUK DEBUG:
+                if plugged {
+                    println!("✅ DEBUG: Printer TERDETEKSI di Rust!");
+                } else {
+                    // Ini akan muncul setiap detik jika tidak terdeteksi
+                    println!("❌ DEBUG: Printer TIDAK terdeteksi...");
+                }
+
                 let _ = handle.emit("printer-status", plugged);
                 std::thread::sleep(Duration::from_secs(1));
             });
