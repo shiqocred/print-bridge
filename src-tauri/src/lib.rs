@@ -74,9 +74,8 @@ async fn handle_print(body: Bytes) -> StatusCode {
     // --- LOGIKA UNTUK WINDOWS ---
     #[cfg(target_os = "windows")]
     {
-        println!("🖨️ [Windows] Mengirim data ke: {}", PRINTER_NAME);
+        println!("🖨️ [Windows] Mengirim data raw ke: {}", PRINTER_NAME);
 
-        // Simpan data biner ke file sementara
         let temp_dir = std::env::temp_dir();
         let temp_file = temp_dir.join("print_job.bin");
 
@@ -84,26 +83,24 @@ async fn handle_print(body: Bytes) -> StatusCode {
             return StatusCode::INTERNAL_SERVER_ERROR;
         }
 
-        // Gunakan PowerShell untuk kirim raw data ke printer
-        // Perintah ini mengambil file biner dan mem-piping-nya langsung ke printer
+        // GANTI BAGIAN INI:
+        // Kita pakai PowerShell untuk "mendownload" file biner langsung ke antrean printer
         let cmd = format!(
-            "Get-Content -Path '{}' -Raw -Encoding Byte | Out-Printer -Name '{}'",
-            temp_file.to_str().unwrap_or_default(),
-            PRINTER_NAME
+            "print /D:\"{}\" \"{}\"",
+            PRINTER_NAME,
+            temp_file.to_str().unwrap_or_default()
         );
 
-        let process = Command::new("powershell").args(["-Command", &cmd]).spawn();
+        let process = Command::new("cmd").args(["/C", &cmd]).spawn();
 
         return match process {
-            Ok(mut child) => {
-                match child.wait() {
-                    Ok(s) if s.success() => {
-                        let _ = std::fs::remove_file(temp_file); // Bersihkan file temp
-                        StatusCode::OK
-                    }
-                    _ => StatusCode::INTERNAL_SERVER_ERROR,
+            Ok(mut child) => match child.wait() {
+                Ok(s) if s.success() => {
+                    let _ = std::fs::remove_file(temp_file);
+                    StatusCode::OK
                 }
-            }
+                _ => StatusCode::INTERNAL_SERVER_ERROR,
+            },
             Err(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };
     }
