@@ -11,6 +11,7 @@
     "core:menu:default",
     "core:tray:default",
     "store:default",
-    "updater:default"
+    "updater:default",
+    "process:default"
   ]
 }
