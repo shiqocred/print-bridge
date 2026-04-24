@@ -1,0 +1,85 @@
+name: "inspect-build-artifacts"
+
+on:
+  workflow_dispatch: # Trigger manual dari tab Actions
+
+jobs:
+  inspect-build:
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: "windows-latest"
+            args: ""
+          - platform: "macos-latest"
+            args: "--target universal-apple-darwin"
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - name: install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          # Setup target untuk macOS (Intel & ARM)
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: install frontend dependencies
+        run: yarn install # Ganti npm install jika perlu
+
+      - name: build tauri app
+        id: tauri_build
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          args: ${{ matrix.args }}
+
+      - name: 🔍 Debugging & Log Inspection
+        shell: bash
+        run: |
+          echo "=========================================================="
+          echo "🚀 STARTING INSPECTION FOR PLATFORM: ${{ matrix.platform }}"
+          echo "=========================================================="
+
+          # 1. Tampilkan struktur folder hasil bundle
+          echo "📂 Folder Structure (src-tauri/target/release/bundle):"
+          ls -R src-tauri/target/release/bundle
+          echo ""
+
+          # 2. Cari file Installer (.msi untuk Win, .dmg untuk Mac)
+          INSTALLER_PATH=$(find src-tauri/target/release/bundle -type f \( -name "*.msi" -o -name "*.dmg" \) | head -n 1)
+
+          if [ -z "$INSTALLER_PATH" ]; then
+            echo "❌ ERROR: Installer file (.msi/.dmg) tidak ditemukan!"
+            exit 1
+          fi
+
+          echo "📦 Found Installer: $INSTALLER_PATH"
+
+          # 3. Cari dan tampilkan isi file .sig
+          SIG_PATH="$INSTALLER_PATH.sig"
+
+          if [ -f "$SIG_PATH" ]; then
+            echo "📝 Found Signature File: $SIG_PATH"
+            echo "------------------- CONTENT OF .SIG -------------------"
+            cat "$SIG_PATH"
+            echo ""
+            echo "-------------------------------------------------------"
+          else
+            echo "⚠️  WARNING: File .sig tidak ditemukan!"
+            echo "Pastikan TAURI_PRIVATE_KEY sudah diset di GitHub Secrets."
+          fi
+
+          echo "=========================================================="
+          echo "✅ INSPECTION FINISHED"
+          echo "=========================================================="
