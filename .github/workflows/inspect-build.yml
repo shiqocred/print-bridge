@@ -1,42 +1,84 @@
 name: "inspect-build-artifacts"
 
 on:
-  workflow_dispatch: # Trigger manual dari tab Actions
+  workflow_dispatch:
 
 jobs:
-  test-tauri:
+  inspect-build:
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
         include:
-          - platform: "macos-latest" # for Arm based macs (M1 and above).
-            args: "--target aarch64-apple-darwin"
-          - platform: "macos-latest" # for Intel based macs.
-            args: "--target x86_64-apple-darwin"
           - platform: "windows-latest"
             args: ""
+          - platform: "macos-latest"
+            args: "--target universal-apple-darwin"
 
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: setup node
-        uses: actions/setup-node@v4
+      # 1. Setup Bun
+      - name: setup bun
+        uses: oven-sh/setup-bun@v2
         with:
-          node-version: lts/*
+          bun-version: latest
 
+      # 2. Setup Rust
       - name: install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          # Those targets are only used on macos runners so it's in an `if` to slightly speed up windows and linux builds.
           targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
+      # 3. Install Dependencies menggunakan Bun
       - name: install frontend dependencies
-        run: yarn install # change this to npm, pnpm or bun depending on which one you use.
+        run: bun install
 
-      # If tagName and releaseId are omitted tauri-action will only build the app and won't try to upload any assets.
-      - uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5
+      # 4. Build Tauri App (Menggunakan tauri-action@v2)
+      - name: build tauri app
+        id: tauri_build
+        uses: tauri-apps/tauri-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
+          TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
         with:
           args: ${{ matrix.args }}
+
+      # 5. Log & Inspection
+      - name: 🔍 Debugging & Log Inspection
+        shell: bash
+        run: |
+          echo "=========================================================="
+          echo "🚀 STARTING INSPECTION FOR PLATFORM: ${{ matrix.platform }}"
+          echo "=========================================================="
+
+          # Tampilkan struktur folder
+          echo "📂 Folder Structure:"
+          ls -R src-tauri/target/release/bundle || echo "Folder not found"
+          echo ""
+
+          # Cari Installer
+          INSTALLER_PATH=$(find src-tauri/target/release/bundle -type f \( -name "*.msi" -o -name "*.dmg" \) | head -n 1)
+
+          if [ -z "$INSTALLER_PATH" ]; then
+            echo "❌ ERROR: Installer file tidak ditemukan!"
+            exit 1
+          fi
+
+          echo "📦 Found Installer: $INSTALLER_PATH"
+
+          # Tampilkan Signature
+          SIG_PATH="$INSTALLER_PATH.sig"
+          if [ -f "$SIG_PATH" ]; then
+            echo "📝 Found Signature File: $SIG_PATH"
+            echo "------------------- CONTENT OF .SIG -------------------"
+            cat "$SIG_PATH"
+            echo ""
+            echo "-------------------------------------------------------"
+          else
+            echo "⚠️  WARNING: File .sig tidak ditemukan! Periksa TAURI_PRIVATE_KEY di Secrets."
+          fi
+          echo "=========================================================="
