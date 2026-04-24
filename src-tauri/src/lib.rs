@@ -1,4 +1,7 @@
-use axum::{body::Bytes, extract::State, routing::post, Router};
+use axum::{
+    body::Bytes, extract::State, http::StatusCode, response::IntoResponse, routing::post, Json,
+    Router,
+};
 use escpos::driver::NativeUsbDriver;
 use escpos::utils::Protocol;
 use serde::Serialize;
@@ -7,6 +10,8 @@ use tauri::{command, AppHandle, Emitter};
 use tauri_plugin_store::StoreExt;
 use tauri_plugin_updater::UpdaterExt;
 use tower_http::cors::CorsLayer;
+
+use serde_json::json;
 
 #[derive(Serialize, Clone)]
 struct UsbDevice {
@@ -35,46 +40,138 @@ async fn is_printer_ready(vid: String, pid: String) -> bool {
     NativeUsbDriver::open(v, p).is_ok()
 }
 
-async fn handle_print_raw(
-    State(state): State<Arc<AppState>>,
-    body: Bytes,
-) -> Result<String, String> {
-    let store = state
-        .handle
-        .store("settings.json")
-        .map_err(|e| e.to_string())?;
+async fn handle_print_raw(State(state): State<Arc<AppState>>, body: Bytes) -> impl IntoResponse {
+    let store = match state.handle.store("settings.json") {
+        Ok(s) => s,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"status": false, "message": format!("Store error: {}", e)})),
+            )
+        }
+    };
 
+    // 2. Ambil VID/PID
+    // 2. Ambil VID/PID (Tanpa default printer yang valid)
     let (vid_str, pid_str) = {
         let val = store.get("printer_aktif");
+
+        // Jika "printer_aktif" tidak ada di settings.json, langsung return error
+        if val.is_none() {
+            return (
+                StatusCode::PRECONDITION_FAILED, // 412: Belum setting
+                Json(
+                    json!({"status": false, "message": "Silahkan pilih dan tambahkan printer di pengaturan terlebih dahulu"}),
+                ),
+            );
+        }
+
         let vid = val
             .as_ref()
             .and_then(|v| v.get("vid"))
             .and_then(|v| v.as_str())
-            .unwrap_or("0x6868")
-            .to_string();
+            .map(|s| s.to_string());
+
         let pid = val
             .as_ref()
             .and_then(|v| v.get("pid"))
             .and_then(|v| v.as_str())
-            .unwrap_or("0x0200")
-            .to_string();
-        (vid, pid)
+            .map(|s| s.to_string());
+
+        // Pastikan keduanya ada nilainya
+        match (vid, pid) {
+            (Some(v), Some(p)) => (v, p),
+            _ => {
+                return (
+                    StatusCode::PRECONDITION_FAILED,
+                    Json(json!({"status": false, "message": "Konfigurasi printer tidak lengkap"})),
+                )
+            }
+        }
     };
 
-    let v = u16::from_str_radix(vid_str.trim_start_matches("0x"), 16).map_err(|_| "VID Invalid")?;
-    let p = u16::from_str_radix(pid_str.trim_start_matches("0x"), 16).map_err(|_| "PID Invalid")?;
+    let v = match u16::from_str_radix(vid_str.trim_start_matches("0x"), 16) {
+        Ok(v) => v,
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"status": false, "message": "VID Invalid"})),
+            )
+        }
+    };
 
-    let driver = NativeUsbDriver::open(v, p).map_err(|e| format!("Printer error: {}", e))?;
+    let p = match u16::from_str_radix(pid_str.trim_start_matches("0x"), 16) {
+        Ok(p) => p,
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"status": false, "message": "PID Invalid"})),
+            )
+        }
+    };
+
+    let mut devices = match nusb::list_devices().await {
+        Ok(d) => d,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"status": false, "message": format!("Gagal scan USB: {}", e)})),
+            )
+        }
+    };
+
+    // 2. Langsung gunakan iterator (tanpa .iter())
+    let is_connected = devices.any(|d| d.vendor_id() == v && d.product_id() == p);
+
+    if !is_connected {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"status": false, "message": "Printer tidak terhubung secara fisik"})),
+        );
+    }
+
+    // 3. Open Driver & Print
+    let driver = match NativeUsbDriver::open(v, p) {
+        Ok(d) => d,
+        Err(e) => {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(
+                    json!({"status": false, "message": format!("Printer tidak terdeteksi: {}", e)}),
+                ),
+            )
+        }
+    };
+
     let mut printer = escpos::printer::Printer::new(driver, Protocol::default(), None);
+
+    // Konversi body ke string (sesuai logika awalmu)
     let raw_string = body.iter().map(|&b| b as char).collect::<String>();
 
-    printer
-        .write(&raw_string)
-        .map_err(|e| e.to_string())?
-        .print()
-        .map_err(|e| e.to_string())?;
+    match printer.write(&raw_string) {
+        Ok(p_write) => {
+            if let Err(e) = p_write.print() {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({"status": false, "message": format!("Gagal mencetak: {}", e)})),
+                );
+            }
+        }
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    json!({"status": false, "message": format!("Gagal menulis ke printer: {}", e)}),
+                ),
+            )
+        }
+    }
 
-    Ok("Cetak Berhasil".to_string())
+    // 4. Sukses
+    (
+        StatusCode::OK,
+        Json(json!({"status": true, "message": "Cetak Berhasil"})),
+    )
 }
 
 #[command]
