@@ -49,42 +49,47 @@ jobs:
         shell: bash
         run: |
           echo "=========================================================="
-          echo "🚀 STARTING INSPECTION FOR PLATFORM: ${{ matrix.platform }}"
-          echo "📂 TARGET BUNDLE PATH: ${{ matrix.bundle_path }}"
+          echo "🚀 SPECIFIC INSPECTION FOR PLATFORM: ${{ matrix.platform }}"
           echo "=========================================================="
 
-          # 1. Gunakan variabel dari matrix agar path benar di Windows maupun Mac
           SEARCH_PATH="${{ matrix.bundle_path }}"
 
-          # Tampilkan struktur folder berdasarkan path yang benar
-          echo "📂 Folder Structure ($SEARCH_PATH):"
-          ls -R "$SEARCH_PATH" || echo "❌ Folder not found!"
-          echo ""
+          if [ "${{ matrix.platform }}" == "macos-latest" ]; then
+            echo "🍎 MACOS TARGET"
+            # Mencari .dmg dan .tar.gz
+            DMG_FILE=$(find "$SEARCH_PATH" -type f -name "*.dmg")
+            TAR_GZ_FILE=$(find "$SEARCH_PATH" -type f -name "*.tar.gz")
+            SIG_FILE=$(find "$SEARCH_PATH" -type f -name "*.tar.gz.sig")
 
-          # 2. Cari Installer (.msi atau .dmg) di path tersebut
-          INSTALLER_PATH=$(find "$SEARCH_PATH" -type f \( -name "*.msi" -o -name "*.dmg" \) | head -n 1)
+            echo "📦 DMG Installer: $DMG_FILE"
+            echo "📦 Updater Bundle: $TAR_GZ_FILE"
 
-          if [ -z "$INSTALLER_PATH" ]; then
-            echo "❌ ERROR: Installer file tidak ditemukan di $SEARCH_PATH!"
-            exit 1
-          fi
+            if [ -f "$SIG_FILE" ]; then
+              echo "📝 Found Signature (.tar.gz.sig): $SIG_FILE"
+              echo "------------------- CONTENT OF .TAR.GZ.SIG -------------------"
+              cat "$SIG_FILE"
+              echo ""
+              echo "--------------------------------------------------------------"
+            else
+              echo "❌ ERROR: .tar.gz.sig not found!"
+            fi
 
-          echo "📦 Found Installer: $INSTALLER_PATH"
-
-          # 3. Logika pencarian Signature (.sig)
-          # Di Mac Universal, .sig biasanya berpasangan dengan .tar.gz (updater)
-          # Kita cari file .sig apapun yang ada di folder bundle tersebut
-          echo "📝 Searching for Signature File..."
-          SIG_PATH=$(find "$SEARCH_PATH" -type f -name "*.sig" | head -n 1)
-
-          if [ -f "$SIG_PATH" ]; then
-            echo "✅ Found Signature: $SIG_PATH"
-            echo "------------------- CONTENT OF .SIG -------------------"
-            cat "$SIG_PATH"
-            echo ""
-            echo "-------------------------------------------------------"
           else
-            echo "⚠️  WARNING: File .sig tidak ditemukan!"
-            echo "Cek apakah TAURI_SIGNING_PRIVATE_KEY sudah benar di Secrets."
+            echo "💻 WINDOWS TARGET"
+            # Mencari .exe (NSIS) dan .exe.sig
+            EXE_FILE=$(find "$SEARCH_PATH" -type f -name "*-setup.exe")
+            SIG_FILE="$EXE_FILE.sig"
+
+            echo "📦 EXE Installer: $EXE_FILE"
+
+            if [ -f "$SIG_FILE" ]; then
+              echo "📝 Found Signature (.exe.sig): $SIG_FILE"
+              echo "------------------- CONTENT OF .EXE.SIG -------------------"
+              cat "$SIG_FILE"
+              echo ""
+              echo "-----------------------------------------------------------"
+            else
+              echo "❌ ERROR: .exe.sig not found!"
+            fi
           fi
           echo "=========================================================="
