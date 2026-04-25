@@ -48,48 +48,41 @@ jobs:
       - name: 🔍 Debugging & Log Inspection
         shell: bash
         run: |
+          # Mengambil versi aplikasi dari output tauri-action
+          VERSION="${{ steps.tauri_build.outputs.appVersion }}"
+
           echo "=========================================================="
-          echo "🚀 SPECIFIC INSPECTION FOR PLATFORM: ${{ matrix.platform }}"
+          echo "🚀 PLATFORM: ${{ matrix.platform }}"
+          echo "📦 DETECTED VERSION: $VERSION"
           echo "=========================================================="
 
           SEARCH_PATH="${{ matrix.bundle_path }}"
 
           if [ "${{ matrix.platform }}" == "macos-latest" ]; then
-            echo "🍎 MACOS TARGET"
-            # Mencari .dmg dan .tar.gz
+            echo "🍎 MACOS (Universal)"
+            # Mencari installer (.dmg) dan updater (.tar.gz)
             DMG_FILE=$(find "$SEARCH_PATH" -type f -name "*.dmg")
             TAR_GZ_FILE=$(find "$SEARCH_PATH" -type f -name "*.tar.gz")
             SIG_FILE=$(find "$SEARCH_PATH" -type f -name "*.tar.gz.sig")
 
-            echo "📦 DMG Installer: $DMG_FILE"
-            echo "📦 Updater Bundle: $TAR_GZ_FILE"
+            echo "✅ DMG: $DMG_FILE"
+            echo "✅ Bundle: $TAR_GZ_FILE"
 
-            if [ -f "$SIG_FILE" ]; then
-              echo "📝 Found Signature (.tar.gz.sig): $SIG_FILE"
-              echo "------------------- CONTENT OF .TAR.GZ.SIG -------------------"
-              cat "$SIG_FILE"
-              echo ""
-              echo "--------------------------------------------------------------"
-            else
-              echo "❌ ERROR: .tar.gz.sig not found!"
-            fi
+            echo "------------------- CONTENT OF .TAR.GZ.SIG -------------------"
+            [ -f "$SIG_FILE" ] && cat "$SIG_FILE" || echo "❌ Signature not found!"
+            echo "--------------------------------------------------------------"
 
           else
-            echo "💻 WINDOWS TARGET"
-            # Mencari .exe (NSIS) dan .exe.sig
+            echo "💻 WINDOWS (x64)"
+            # Mencari installer (.exe)
             EXE_FILE=$(find "$SEARCH_PATH" -type f -name "*-setup.exe")
             SIG_FILE="$EXE_FILE.sig"
 
-            echo "📦 EXE Installer: $EXE_FILE"
+            echo "✅ EXE: $EXE_FILE"
 
-            if [ -f "$SIG_FILE" ]; then
-              echo "📝 Found Signature (.exe.sig): $SIG_FILE"
-              echo "------------------- CONTENT OF .EXE.SIG -------------------"
-              cat "$SIG_FILE"
-              echo ""
-              echo "-----------------------------------------------------------"
-            else
-              echo "❌ ERROR: .exe.sig not found!"
-            fi
+            echo "------------------- CONTENT OF .EXE.SIG -------------------"
+            [ -f "$SIG_FILE" ] && cat "$SIG_FILE" || echo "❌ Signature not found!"
+            echo "-----------------------------------------------------------"
           fi
+
           echo "=========================================================="
