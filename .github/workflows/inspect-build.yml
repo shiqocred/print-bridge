@@ -13,30 +13,28 @@ jobs:
         include:
           - platform: "windows-latest"
             args: ""
+            bundle_path: "src-tauri/target/release/bundle"
           - platform: "macos-latest"
             args: "--target universal-apple-darwin"
+            bundle_path: "src-tauri/target/universal-apple-darwin/release/bundle"
 
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
 
-      # 1. Setup Bun
       - name: setup bun
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
 
-      # 2. Setup Rust
       - name: install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
-      # 3. Install Dependencies menggunakan Bun
       - name: install frontend dependencies
         run: bun install
 
-      # 4. Build Tauri App (Menggunakan tauri-action@v2)
       - name: build tauri app
         id: tauri_build
         uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5
@@ -47,38 +45,46 @@ jobs:
         with:
           args: ${{ matrix.args }}
 
-      # 5. Log & Inspection
       - name: 🔍 Debugging & Log Inspection
         shell: bash
         run: |
           echo "=========================================================="
           echo "🚀 STARTING INSPECTION FOR PLATFORM: ${{ matrix.platform }}"
+          echo "📂 TARGET BUNDLE PATH: ${{ matrix.bundle_path }}"
           echo "=========================================================="
 
-          # Tampilkan struktur folder
-          echo "📂 Folder Structure:"
-          ls -R src-tauri/target/release/bundle || echo "Folder not found"
+          # 1. Gunakan variabel dari matrix agar path benar di Windows maupun Mac
+          SEARCH_PATH="${{ matrix.bundle_path }}"
+
+          # Tampilkan struktur folder berdasarkan path yang benar
+          echo "📂 Folder Structure ($SEARCH_PATH):"
+          ls -R "$SEARCH_PATH" || echo "❌ Folder not found!"
           echo ""
 
-          # Cari Installer
-          INSTALLER_PATH=$(find src-tauri/target/release/bundle -type f \( -name "*.msi" -o -name "*.dmg" \) | head -n 1)
+          # 2. Cari Installer (.msi atau .dmg) di path tersebut
+          INSTALLER_PATH=$(find "$SEARCH_PATH" -type f \( -name "*.msi" -o -name "*.dmg" \) | head -n 1)
 
           if [ -z "$INSTALLER_PATH" ]; then
-            echo "❌ ERROR: Installer file tidak ditemukan!"
+            echo "❌ ERROR: Installer file tidak ditemukan di $SEARCH_PATH!"
             exit 1
           fi
 
           echo "📦 Found Installer: $INSTALLER_PATH"
 
-          # Tampilkan Signature
-          SIG_PATH="$INSTALLER_PATH.sig"
+          # 3. Logika pencarian Signature (.sig)
+          # Di Mac Universal, .sig biasanya berpasangan dengan .tar.gz (updater)
+          # Kita cari file .sig apapun yang ada di folder bundle tersebut
+          echo "📝 Searching for Signature File..."
+          SIG_PATH=$(find "$SEARCH_PATH" -type f -name "*.sig" | head -n 1)
+
           if [ -f "$SIG_PATH" ]; then
-            echo "📝 Found Signature File: $SIG_PATH"
+            echo "✅ Found Signature: $SIG_PATH"
             echo "------------------- CONTENT OF .SIG -------------------"
             cat "$SIG_PATH"
             echo ""
             echo "-------------------------------------------------------"
           else
-            echo "⚠️  WARNING: File .sig tidak ditemukan! Periksa TAURI_PRIVATE_KEY di Secrets."
+            echo "⚠️  WARNING: File .sig tidak ditemukan!"
+            echo "Cek apakah TAURI_SIGNING_PRIVATE_KEY sudah benar di Secrets."
           fi
           echo "=========================================================="
