@@ -13,8 +13,6 @@ use tower_http::cors::CorsLayer;
 
 use serde_json::json;
 
-use axum::extract::Json as AxumJson;
-
 #[derive(Serialize, Clone)]
 struct UsbDevice {
     name: String,
