@@ -13,7 +13,7 @@ use tower_http::cors::CorsLayer;
 
 use serde_json::json;
 
-use axum::{extract::Json as AxumJson};
+use axum::extract::Json as AxumJson;
 
 #[derive(Serialize, Clone)]
 struct UsbDevice {
@@ -42,31 +42,6 @@ async fn is_printer_ready(vid: String, pid: String) -> bool {
     NativeUsbDriver::open(v, p).is_ok()
 }
 
-// --- API: /printer-ready ---
-#[derive(serde::Deserialize)]
-struct PrinterReadyRequest {
-    vid: String,
-    pid: String,
-}
-
-async fn handle_printer_ready(AxumJson(req): AxumJson<PrinterReadyRequest>) -> impl IntoResponse {
-    let v = u16::from_str_radix(req.vid.trim_start_matches("0x"), 16).unwrap_or(0);
-    let p = u16::from_str_radix(req.pid.trim_start_matches("0x"), 16).unwrap_or(0);
-
-    if let Ok(devices) = nusb::list_devices().await {
-        if devices.into_iter().any(|d| d.vendor_id() == v && d.product_id() == p) {
-            return (
-                StatusCode::OK,
-                Json(json!({"status": true, "message": "Printer terdeteksi dan siap digunakan"})),
-            );
-        }
-    }
-    (
-        StatusCode::OK,
-        Json(json!({"status": false, "message": "Printer tidak ditemukan atau tidak siap"})),
-    )
-}
-
 // --- GET /printer-ready: cek printer aktif dari settings.json ---
 use axum::extract::State as AxumState;
 async fn handle_printer_ready_get(AxumState(state): AxumState<Arc<AppState>>) -> impl IntoResponse {
@@ -80,16 +55,27 @@ async fn handle_printer_ready_get(AxumState(state): AxumState<Arc<AppState>>) ->
         }
     };
     let val = store.get("printer_aktif");
-    let vid = val.as_ref().and_then(|v| v.get("vid")).and_then(|v| v.as_str());
-    let pid = val.as_ref().and_then(|v| v.get("pid")).and_then(|v| v.as_str());
+    let vid = val
+        .as_ref()
+        .and_then(|v| v.get("vid"))
+        .and_then(|v| v.as_str());
+    let pid = val
+        .as_ref()
+        .and_then(|v| v.get("pid"))
+        .and_then(|v| v.as_str());
     if let (Some(vid), Some(pid)) = (vid, pid) {
         let v = u16::from_str_radix(vid.trim_start_matches("0x"), 16).unwrap_or(0);
         let p = u16::from_str_radix(pid.trim_start_matches("0x"), 16).unwrap_or(0);
         if let Ok(devices) = nusb::list_devices().await {
-            if devices.into_iter().any(|d| d.vendor_id() == v && d.product_id() == p) {
+            if devices
+                .into_iter()
+                .any(|d| d.vendor_id() == v && d.product_id() == p)
+            {
                 return (
                     StatusCode::OK,
-                    Json(json!({"status": true, "message": "Printer terdeteksi dan siap digunakan"})),
+                    Json(
+                        json!({"status": true, "message": "Printer terdeteksi dan siap digunakan"}),
+                    ),
                 );
             }
         }
@@ -104,7 +90,6 @@ async fn handle_printer_ready_get(AxumState(state): AxumState<Arc<AppState>>) ->
         );
     }
 }
-
 
 async fn handle_print_raw(State(state): State<Arc<AppState>>, body: Bytes) -> impl IntoResponse {
     let store = match state.handle.store("settings.json") {
@@ -393,7 +378,10 @@ pub fn run() {
 
                 let app_router = Router::new()
                     .route("/print-raw", post(handle_print_raw))
-                    .route("/printer-ready", axum::routing::get(handle_printer_ready_get))
+                    .route(
+                        "/printer-ready",
+                        axum::routing::get(handle_printer_ready_get),
+                    )
                     .layer(CorsLayer::permissive())
                     .with_state(state);
 
